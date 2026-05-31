@@ -28,6 +28,8 @@
 
 #include <WiFi.h>
 #include <WebServer.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <LovyanGFX.hpp>
 #include <Preferences.h>
@@ -265,6 +267,21 @@ WebServer configServer(80);
 char savedSSID[33] = "";
 char savedPass[65] = "";
 
+// Standalone mode (direct Telegram + MiMo API when bridge is down)
+bool standaloneMode = false;
+unsigned long lastBridgeHeartbeat = 0;
+const unsigned long BRIDGE_TIMEOUT_MS = 60000;  // 60s no bridge = standalone
+long telegramOffset = 0;
+unsigned long lastTelegramPoll = 0;
+const unsigned long TELEGRAM_POLL_INTERVAL = 3000;  // 3s
+
+// Telegram + MiMo config (loaded from NVS)
+char cfgBotToken[65] = "";
+char cfgChatId[21] = "";
+char cfgMimoApiKey[129] = "";
+char cfgMimoUrl[129] = "https://token-plan-sgp.xiaomimimo.com/v1";
+char cfgMimoModel[65] = "mimo-v2.5-pro";
+
 // ============== FUNCTION DECLARATIONS ==============
 void setupDisplay();
 void setupWiFi();
@@ -291,6 +308,12 @@ void handleConfigRoot();
 void handleConfigSave();
 void handleConfigScan();
 void drawConfigPortalScreen();
+void loadStandaloneConfig();
+void saveStandaloneConfig(const char* token, const char* chatId, const char* apiKey);
+void pollTelegramDirect();
+String callMiMoAPI(const char* userText);
+void replyTelegram(const char* chatId, const char* text);
+void sendToBridgeOrDirect(const char* userMsg, const char* aiMsg);
 void drawInlineEmoji(int emojiIdx, int x, int y, uint16_t color);
 int findEmoji(const char* utf8, int* bytesUsed);
 MoodType detectMood(const char* text);
@@ -314,11 +337,16 @@ void setup() {
   setupRGB();
   setupDisplay();
   setupWiFi();
-  setupNTP();
-  setupWebServer();
-
-  setStatus("Ready");
-  lastActivityTime = millis();
+  
+  if (!configPortalActive) {
+    setupNTP();
+    setupWebServer();
+    loadStandaloneConfig();  // Load Telegram + MiMo config
+    lastBridgeHeartbeat = millis();  // Start countdown
+    
+    setStatus("Ready");
+    lastActivityTime = millis();
+  }
 
   Serial.println("\n========================================");
   Serial.println("   Setup Complete!");
@@ -334,6 +362,18 @@ void loop() {
   }
   
   server.handleClient();
+
+  // Detect bridge timeout → switch to standalone mode
+  if (!standaloneMode && (millis() - lastBridgeHeartbeat > BRIDGE_TIMEOUT_MS)) {
+    standaloneMode = true;
+    Serial.println("[MODE] Bridge timeout, switching to STANDALONE mode");
+    setStatus("Standalone");
+  }
+
+  // Standalone mode: poll Telegram directly
+  if (standaloneMode) {
+    pollTelegramDirect();
+  }
 
   // Update clock every second
   unsigned long now = millis();
@@ -593,8 +633,12 @@ void handleConfigRoot() {
   html += "</style></head><body>";
   html += "<div class='card'>";
   html += "<h1>AI Pocket</h1>";
-  html += "<p class='subtitle'>WiFi Configuration Portal</p>";
+  html += "<p class='subtitle'>WiFi + AI Configuration</p>";
   html += "<form method='POST' action='/save'>";
+  
+  // WiFi section
+  html += "<div style='margin-bottom:8px;padding:8px;background:#1a1f35;border-radius:8px'>";
+  html += "<label style='color:#ff9800;font-weight:600;margin:0'>WiFi Settings</label>";
   
   // WiFi scan dropdown
   html += "<label>Available Networks</label>";
@@ -611,6 +655,21 @@ void handleConfigRoot() {
   // Password
   html += "<label>Password</label>";
   html += "<input type='password' name='pass' placeholder='Enter WiFi password'>";
+  html += "</div>";
+  
+  // Telegram + MiMo section
+  html += "<div style='margin-top:16px;padding:8px;background:#1a1f35;border-radius:8px'>";
+  html += "<label style='color:#07ff;font-weight:600;margin:0'>Telegram + MiMo AI (Standalone)</label>";
+  
+  html += "<label>Telegram Bot Token</label>";
+  html += "<input type='text' name='bot_token' placeholder='123456:ABC-xyz'>";
+  
+  html += "<label>Telegram Chat ID</label>";
+  html += "<input type='text' name='chat_id' placeholder='Your chat ID'>";
+  
+  html += "<label>MiMo API Key</label>";
+  html += "<input type='text' name='mimo_key' placeholder='your-api-key'>";
+  html += "</div>";
   
   html += "<button type='submit' class='btn-save'>Save & Reboot</button>";
   html += "</form>";
@@ -623,6 +682,9 @@ void handleConfigRoot() {
 void handleConfigSave() {
   String ssid = configServer.arg("ssid");
   String pass = configServer.arg("pass");
+  String botToken = configServer.arg("bot_token");
+  String chatId = configServer.arg("chat_id");
+  String mimoKey = configServer.arg("mimo_key");
   
   if (ssid.length() == 0) {
     configServer.send(400, "text/html", "<h1>Error: SSID required</h1><a href='/'>Go back</a>");
@@ -639,9 +701,18 @@ void handleConfigSave() {
   tft.setTextColor(C_TEXT);
   tft.setCursor(20, 130);
   tft.print("SSID: " + ssid);
+  tft.setCursor(20, 145);
+  tft.print(String("Bot: ") + (botToken.length() > 0 ? "set" : "skip"));
+  tft.setCursor(20, 160);
+  tft.print(String("MiMo: ") + (mimoKey.length() > 0 ? "set" : "skip"));
   
-  // Save to NVS
+  // Save WiFi to NVS
   saveWiFiCredentials(ssid.c_str(), pass.c_str());
+  
+  // Save Telegram + MiMo to NVS (if provided)
+  if (botToken.length() > 0 || chatId.length() > 0 || mimoKey.length() > 0) {
+    saveStandaloneConfig(botToken.c_str(), chatId.c_str(), mimoKey.c_str());
+  }
   
   // Show success
   String html = "<!DOCTYPE html><html><head>";
@@ -769,6 +840,166 @@ void setupWiFi() {
       startConfigPortal();
     }
   }
+}
+
+// ============== STANDALONE MODE (Direct Telegram + MiMo) ==============
+void loadStandaloneConfig() {
+  preferences.begin("standalone", true);  // read-only
+  String token = preferences.getString("bot_token", "");
+  String chatId = preferences.getString("chat_id", "");
+  String apiKey = preferences.getString("mimo_key", "");
+  String mimoUrl = preferences.getString("mimo_url", "https://token-plan-sgp.xiaomimimo.com/v1");
+  String mimoModel = preferences.getString("mimo_model", "mimo-v2.5-pro");
+  preferences.end();
+
+  if (token.length() > 0) strncpy(cfgBotToken, token.c_str(), 64);
+  if (chatId.length() > 0) strncpy(cfgChatId, chatId.c_str(), 20);
+  if (apiKey.length() > 0) strncpy(cfgMimoApiKey, apiKey.c_str(), 128);
+  if (mimoUrl.length() > 0) strncpy(cfgMimoUrl, mimoUrl.c_str(), 128);
+  if (mimoModel.length() > 0) strncpy(cfgMimoModel, mimoModel.c_str(), 64);
+
+  Serial.printf("[STANDALONE] Bot: %s\n", cfgBotToken[0] ? "loaded" : "not set");
+  Serial.printf("[STANDALONE] MiMo: %s\n", cfgMimoApiKey[0] ? "loaded" : "not set");
+}
+
+void saveStandaloneConfig(const char* token, const char* chatId, const char* apiKey) {
+  preferences.begin("standalone", false);
+  preferences.putString("bot_token", token);
+  preferences.putString("chat_id", chatId);
+  preferences.putString("mimo_key", apiKey);
+  preferences.putString("mimo_url", cfgMimoUrl);
+  preferences.putString("mimo_model", cfgMimoModel);
+  preferences.end();
+  Serial.println("[STANDALONE] Config saved to NVS");
+}
+
+void replyTelegram(const char* chatId, const char* text) {
+  if (strlen(cfgBotToken) == 0) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();  // skip cert verification
+  HTTPClient https;
+  String url = String("https://api.telegram.org/bot") + cfgBotToken + "/sendMessage";
+
+  StaticJsonDocument<1024> doc;
+  doc["chat_id"] = chatId;
+  doc["text"] = text;
+  String body;
+  serializeJson(doc, body);
+
+  https.begin(client, url);
+  https.addHeader("Content-Type", "application/json");
+  int code = https.POST(body);
+  https.end();
+  Serial.printf("[STANDALONE] Telegram reply: %d\n", code);
+}
+
+String callMiMoAPI(const char* userText) {
+  if (strlen(cfgMimoApiKey) == 0) return "API key belum di set 😅";
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String url = String(cfgMimoUrl) + "/chat/completions";
+
+  // Build request
+  StaticJsonDocument<1024> doc;
+  doc["model"] = cfgMimoModel;
+  doc["max_tokens"] = 200;
+  doc["temperature"] = 0.7;
+  JsonArray msgs = doc.createNestedArray("messages");
+  JsonObject sysMsg = msgs.createNestedObject();
+  sysMsg["role"] = "system";
+  sysMsg["content"] = "Kamu adalah AI asisten pocket yang ramah. Balas singkat 1-2 kalimat, bahasa Indonesia santai. Jangan pakai markdown.";
+  JsonObject usrMsg = msgs.createNestedObject();
+  usrMsg["role"] = "user";
+  usrMsg["content"] = userText;
+
+  String body;
+  serializeJson(doc, body);
+
+  https.begin(client, url);
+  https.addHeader("Content-Type", "application/json");
+  https.addHeader("Authorization", String("Bearer ") + cfgMimoApiKey);
+  https.setTimeout(15000);
+
+  int code = https.POST(body);
+  String response = "";
+  if (code == 200) {
+    String payload = https.getString();
+    StaticJsonDocument<2048> respDoc;
+    if (!deserializeJson(respDoc, payload)) {
+      response = respDoc["choices"][0]["message"]["content"].as<String>();
+    }
+  } else {
+    Serial.printf("[STANDALONE] MiMo API error: %d\n", code);
+    response = "API error 😅";
+  }
+  https.end();
+  return response;
+}
+
+void pollTelegramDirect() {
+  if (strlen(cfgBotToken) == 0 || strlen(cfgChatId) == 0) return;
+
+  unsigned long now = millis();
+  if (now - lastTelegramPoll < TELEGRAM_POLL_INTERVAL) return;
+  lastTelegramPoll = now;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String url = String("https://api.telegram.org/bot") + cfgBotToken +
+               "/getUpdates?offset=" + String(telegramOffset) + "&timeout=1";
+
+  https.begin(client, url);
+  https.setTimeout(5000);
+  int code = https.GET();
+
+  if (code == 200) {
+    String payload = https.getString();
+    StaticJsonDocument<8192> doc;
+    if (!deserializeJson(doc, payload) && doc["ok"].as<bool>()) {
+      JsonArray results = doc["result"].as<JsonArray>();
+      for (JsonObject u : results) {
+        telegramOffset = u["update_id"].as<long>() + 1;
+        JsonObject msg = u["message"];
+        if (msg.isNull()) continue;
+
+        String chatId = String(msg["chat"]["id"].as<long>());
+        String text = msg["text"].as<String>();
+
+        // Only process messages from our chat
+        if (chatId != String(cfgChatId)) continue;
+        if (text.length() == 0) continue;
+
+        Serial.printf("[STANDALONE] Telegram msg: %s\n", text.substring(0, 50).c_str());
+
+        // Show thinking on display
+        strncpy(lastUserMessage, text.c_str(), MAX_MSG_LENGTH - 1);
+        strncpy(lastAiResponse, "🤔 Thinking...", MAX_MSG_LENGTH - 1);
+        currentMood = MOOD_THINKING;
+        updateDisplay();
+
+        // Call MiMo API directly
+        String aiResponse = callMiMoAPI(text.c_str());
+
+        // Update display
+        strncpy(lastAiResponse, aiResponse.c_str(), MAX_MSG_LENGTH - 1);
+        currentMood = detectMood(lastAiResponse);
+        animMood = currentMood;
+        updateDisplay();
+        lastActivityTime = millis();
+
+        // Reply to Telegram
+        String replyText = "🤖 " + aiResponse;
+        replyTelegram(cfgChatId, replyText.c_str());
+
+        Serial.printf("[STANDALONE] AI: %s\n", aiResponse.substring(0, 50).c_str());
+      }
+    }
+  }
+  https.end();
 }
 
 // ============== WEB SERVER SETUP ==============
@@ -931,6 +1162,12 @@ void handleMessage() {
 
     updateDisplay();
     lastActivityTime = millis();
+    lastBridgeHeartbeat = millis();  // Bridge is alive
+    if (standaloneMode) {
+      standaloneMode = false;
+      Serial.println("[MODE] Bridge detected, switching back to bridge mode");
+      setStatus("Connected");
+    }
 
     StaticJsonDocument<256> resp;
     resp["status"] = "ok";
