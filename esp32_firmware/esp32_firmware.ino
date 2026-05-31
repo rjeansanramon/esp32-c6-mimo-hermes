@@ -46,7 +46,7 @@ public:
       auto cfg = _bus_instance.config();
       cfg.spi_host   = SPI2_HOST;
       cfg.spi_mode   = 0;
-      cfg.freq_write = 10000000;  // 10 MHz (reduced for lower heat)
+      cfg.freq_write = 5000000;   // 5 MHz (reduced for lower heat)
       cfg.freq_read  = 16000000;
       cfg.pin_sclk   = 7;
       cfg.pin_mosi   = 6;
@@ -259,6 +259,7 @@ bool g_aiBubbleValid = false;
 
 // RGB LED
 bool rgbLedOn = true;
+uint8_t displayBrightness = 128;  // 0-255, 50% default
 
 // WiFi Config Portal
 Preferences preferences;
@@ -488,7 +489,7 @@ void setupDisplay() {
   tft.init();
   tft.setRotation(0);
   tft.invertDisplay(false);
-  tft.setBrightness(80);  // Lower brightness to reduce heat (0-255)
+  tft.setBrightness(displayBrightness);  // 50% brightness to reduce heat
   tft.fillScreen(C_BG);
 
   pinMode(22, OUTPUT);
@@ -1725,8 +1726,8 @@ void drawInfoPanel() {
   float voltage = 3.3;  // Default USB power
   // Temperature: internal sensor
   float temp = temperatureRead();
-  // Brightness: current setting (80/255)
-  int brightPct = (80 * 100) / 255;
+  // Brightness: current setting
+  int brightPct = (displayBrightness * 100) / 255;
   
   tft.setTextSize(1);
   
