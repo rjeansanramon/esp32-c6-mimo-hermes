@@ -64,6 +64,9 @@ COMPUTER_KEYWORDS = [
     "size", "besar", "kapasitas", "space", "free", "sisa"
 ]
 
+# Explicit keyword to force Hermes CLI (priority routing)
+HERMES_KEYWORDS = ["hermes", "hermes agent", "buka hermes", "gunakan hermes", "pakai hermes"]
+
 log(f"Bot: {TOKEN[:10]}...")
 log(f"Chat: {CHAT_ID}")
 log(f"ESP32: {ESP32}")
@@ -77,6 +80,15 @@ def needs_computer_access(text):
     """Check if the message needs computer access."""
     lower = text.lower()
     for kw in COMPUTER_KEYWORDS:
+        if kw in lower:
+            return True
+    return False
+
+
+def needs_hermes_explicit(text):
+    """Check if user explicitly requested Hermes Agent."""
+    lower = text.lower()
+    for kw in HERMES_KEYWORDS:
         if kw in lower:
             return True
     return False
@@ -241,8 +253,11 @@ while True:
                     send_chat_action(cid, "typing")
                     send_esp32_thinking(txt)
 
-                    # Route: fast API for chat, Hermes for computer access
-                    if needs_computer_access(txt):
+                    # Route: Hermes explicit > computer access > fast API
+                    if needs_hermes_explicit(txt):
+                        log(f"  → Route: HERMES (explicit keyword)")
+                        ai_response = get_ai_hermes(txt)
+                    elif needs_computer_access(txt):
                         log(f"  → Route: HERMES (computer access)")
                         ai_response = get_ai_hermes(txt)
                     else:
