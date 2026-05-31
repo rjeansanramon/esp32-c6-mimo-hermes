@@ -487,6 +487,7 @@ void setupDisplay() {
   tft.init();
   tft.setRotation(0);
   tft.invertDisplay(false);
+  tft.setBrightness(100);  // Lower brightness to reduce heat (0-255)
   tft.fillScreen(C_BG);
 
   pinMode(22, OUTPUT);
