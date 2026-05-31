@@ -33,7 +33,7 @@
 #define TFT_BACKLIGHT_ON HIGH
 
 // ============== SPI SPEED ==============
-#define SPI_FREQUENCY  20000000   // 20 MHz (reduced for lower heat)
+#define SPI_FREQUENCY  10000000   // 10 MHz (reduced for lower heat)
 
 // ============== OPTIONAL ==============
 // #define TFT_INVERSION_ON

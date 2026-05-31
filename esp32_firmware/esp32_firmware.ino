@@ -46,7 +46,7 @@ public:
       auto cfg = _bus_instance.config();
       cfg.spi_host   = SPI2_HOST;
       cfg.spi_mode   = 0;
-      cfg.freq_write = 20000000;  // 20 MHz (reduced for lower heat)
+      cfg.freq_write = 10000000;  // 10 MHz (reduced for lower heat)
       cfg.freq_read  = 16000000;
       cfg.pin_sclk   = 7;
       cfg.pin_mosi   = 6;
@@ -487,7 +487,7 @@ void setupDisplay() {
   tft.init();
   tft.setRotation(0);
   tft.invertDisplay(false);
-  tft.setBrightness(100);  // Lower brightness to reduce heat (0-255)
+  tft.setBrightness(80);  // Lower brightness to reduce heat (0-255)
   tft.fillScreen(C_BG);
 
   pinMode(22, OUTPUT);
