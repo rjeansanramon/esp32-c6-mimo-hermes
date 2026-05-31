@@ -30,6 +30,7 @@
 #include <WebServer.h>
 #include <ArduinoJson.h>
 #include <LovyanGFX.hpp>
+#include <Preferences.h>
 #include <time.h>
 
 // ============== LOVYANGFX DISPLAY CONFIG ==============
@@ -257,6 +258,13 @@ bool g_aiBubbleValid = false;
 // RGB LED
 bool rgbLedOn = true;
 
+// WiFi Config Portal
+Preferences preferences;
+bool configPortalActive = false;
+WebServer configServer(80);
+char savedSSID[33] = "";
+char savedPass[65] = "";
+
 // ============== FUNCTION DECLARATIONS ==============
 void setupDisplay();
 void setupWiFi();
@@ -276,6 +284,13 @@ void drawStatusBar();
 void drawRoundedRect(int x, int y, int w, int h, int r, uint16_t color);
 void fillRoundedRect(int x, int y, int w, int h, int r, uint16_t color, uint16_t borderColor);
 void wrapText(const char* text, int x, int y, int maxWidth, int maxLines, uint16_t color);
+void loadWiFiCredentials();
+void saveWiFiCredentials(const char* ssid, const char* pass);
+void startConfigPortal();
+void handleConfigRoot();
+void handleConfigSave();
+void handleConfigScan();
+void drawConfigPortalScreen();
 void drawInlineEmoji(int emojiIdx, int x, int y, uint16_t color);
 int findEmoji(const char* utf8, int* bytesUsed);
 MoodType detectMood(const char* text);
@@ -312,6 +327,12 @@ void setup() {
 
 // ============== LOOP ==============
 void loop() {
+  // Config portal mode - only handle config server
+  if (configPortalActive) {
+    configServer.handleClient();
+    return;
+  }
+  
   server.handleClient();
 
   // Update clock every second
@@ -462,28 +483,291 @@ void setupDisplay() {
   Serial.println("[DISPLAY] Initialized OK");
 }
 
+// ============== WIFI CREDENTIALS (NVS) ==============
+void loadWiFiCredentials() {
+  preferences.begin("wifi", true);  // read-only
+  String ssid = preferences.getString("ssid", "");
+  String pass = preferences.getString("pass", "");
+  preferences.end();
+
+  if (ssid.length() > 0) {
+    strncpy(savedSSID, ssid.c_str(), 32);
+    strncpy(savedPass, pass.c_str(), 64);
+    Serial.printf("[WIFI] Loaded from NVS: %s\n", savedSSID);
+  } else {
+    Serial.println("[WIFI] No saved credentials in NVS");
+  }
+}
+
+void saveWiFiCredentials(const char* ssid, const char* pass) {
+  preferences.begin("wifi", false);  // read-write
+  preferences.putString("ssid", ssid);
+  preferences.putString("pass", pass);
+  preferences.end();
+  Serial.printf("[WIFI] Saved to NVS: %s\n", ssid);
+}
+
+// ============== WIFI CONFIG PORTAL ==============
+void drawConfigPortalScreen() {
+  tft.fillScreen(C_BG);
+  
+  // Header
+  for (int y = 0; y < 50; y++) {
+    uint16_t lineColor = blendColor(C_ORANGE, C_GRAD_TOP, (y * 255) / 50);
+    tft.drawFastHLine(0, y, SCREEN_WIDTH, lineColor);
+  }
+  
+  tft.setTextColor(C_TEXT_BRIGHT);
+  tft.setTextSize(2);
+  tft.setCursor(10, 8);
+  tft.print("WiFi Setup");
+  
+  tft.setTextSize(1);
+  tft.setTextColor(C_ORANGE);
+  tft.setCursor(10, 35);
+  tft.print("CONFIGURATION MODE");
+  
+  // Instructions
+  tft.setTextColor(C_TEXT);
+  int y = 65;
+  tft.setCursor(10, y); tft.print("1. Connect to WiFi:"); y += 14;
+  tft.setTextColor(C_CYAN);
+  tft.setCursor(15, y); tft.print("AI-Pocket-Setup"); y += 18;
+  tft.setTextColor(C_TEXT);
+  tft.setCursor(10, y); tft.print("2. Open browser, go to:"); y += 14;
+  tft.setTextColor(C_CYAN);
+  tft.setCursor(15, y); tft.print("192.168.4.1"); y += 18;
+  tft.setTextColor(C_TEXT);
+  tft.setCursor(10, y); tft.print("3. Enter WiFi & save"); y += 24;
+  
+  // AP info box
+  fillRoundedRect(8, y, SCREEN_WIDTH - 16, 40, 6, C_SURFACE, C_ORANGE);
+  tft.setTextColor(C_ORANGE);
+  tft.setCursor(15, y + 6);
+  tft.print("AP: AI-Pocket-Setup");
+  tft.setTextColor(C_TEXT_DIM);
+  tft.setCursor(15, y + 20);
+  tft.print("IP: 192.168.4.1");
+  
+  // Status bar
+  y = SCREEN_HEIGHT - 30;
+  tft.drawFastHLine(0, y, SCREEN_WIDTH, C_ORANGE);
+  tft.setTextColor(C_TEXT_DIM);
+  tft.setCursor(5, y + 6);
+  tft.print("AI Pocket Config Portal");
+}
+
+String getWiFiScanHTML() {
+  String options = "";
+  int n = WiFi.scanNetworks();
+  for (int i = 0; i < n; i++) {
+    String ssid = WiFi.SSID(i);
+    int rssi = WiFi.RSSI(i);
+    String enc = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "" : " [locked]";
+    options += "<option value=\"" + ssid + "\">" + ssid + " (" + String(rssi) + "dBm)" + enc + "</option>";
+  }
+  return options;
+}
+
+void handleConfigRoot() {
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='UTF-8'>";
+  html += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
+  html += "<title>AI Pocket WiFi Setup</title>";
+  html += "<style>";
+  html += "*{box-sizing:border-box;margin:0;padding:0}";
+  html += "body{font-family:system-ui,-apple-system,sans-serif;background:#0a0e1a;color:#e0e0e0;padding:20px}";
+  html += ".card{max-width:400px;margin:0 auto;background:#141b2d;border-radius:16px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.4)}";
+  html += "h1{color:#ff9800;font-size:1.5em;text-align:center;margin-bottom:8px}";
+  html += ".subtitle{text-align:center;color:#888;font-size:0.85em;margin-bottom:24px}";
+  html += "label{display:block;color:#aaa;font-size:0.85em;margin-bottom:4px;margin-top:16px}";
+  html += "select,input{width:100%;padding:12px;border:1px solid #2a2a3d;border-radius:8px;background:#1a1f35;color:#fff;font-size:1em}";
+  html += "select:focus,input:focus{outline:none;border-color:#ff9800}";
+  html += "button{width:100%;padding:14px;margin-top:24px;border:none;border-radius:8px;font-size:1em;font-weight:600;cursor:pointer}";
+  html += ".btn-scan{background:#1a73e8;color:#fff}";
+  html += ".btn-save{background:#ff9800;color:#fff}";
+  html += ".btn-scan:hover{background:#1565c0}";
+  html += ".btn-save:hover{background:#f57c00}";
+  html += ".info{text-align:center;color:#666;font-size:0.75em;margin-top:16px}";
+  html += ".rssi{color:#4caf50;font-size:0.8em}";
+  html += "</style></head><body>";
+  html += "<div class='card'>";
+  html += "<h1>AI Pocket</h1>";
+  html += "<p class='subtitle'>WiFi Configuration Portal</p>";
+  html += "<form method='POST' action='/save'>";
+  
+  // WiFi scan dropdown
+  html += "<label>Available Networks</label>";
+  html += "<select id='ssid_select' onchange='document.getElementById(\"ssid\").value=this.value'>";
+  html += "<option value=''>-- Scan for networks --</option>";
+  html += getWiFiScanHTML();
+  html += "</select>";
+  html += "<button type='button' class='btn-scan' onclick='location.reload()'>Refresh Scan</button>";
+  
+  // Manual SSID input
+  html += "<label>WiFi Name (SSID)</label>";
+  html += "<input type='text' id='ssid' name='ssid' placeholder='Enter WiFi name' required>";
+  
+  // Password
+  html += "<label>Password</label>";
+  html += "<input type='password' name='pass' placeholder='Enter WiFi password'>";
+  
+  html += "<button type='submit' class='btn-save'>Save & Reboot</button>";
+  html += "</form>";
+  html += "<p class='info'>AI Pocket v2.0 | ESP32-C6</p>";
+  html += "</div></body></html>";
+  
+  configServer.send(200, "text/html", html);
+}
+
+void handleConfigSave() {
+  String ssid = configServer.arg("ssid");
+  String pass = configServer.arg("pass");
+  
+  if (ssid.length() == 0) {
+    configServer.send(400, "text/html", "<h1>Error: SSID required</h1><a href='/'>Go back</a>");
+    return;
+  }
+  
+  // Show saving screen
+  tft.fillScreen(C_BG);
+  tft.setTextColor(C_GREEN);
+  tft.setTextSize(2);
+  tft.setCursor(20, 100);
+  tft.print("Saving...");
+  tft.setTextSize(1);
+  tft.setTextColor(C_TEXT);
+  tft.setCursor(20, 130);
+  tft.print("SSID: " + ssid);
+  
+  // Save to NVS
+  saveWiFiCredentials(ssid.c_str(), pass.c_str());
+  
+  // Show success
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
+  html += "<style>body{font-family:system-ui;background:#0a0e1a;color:#e0e0e0;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}";
+  html += ".card{background:#141b2d;border-radius:16px;padding:32px;text-align:center;max-width:350px}";
+  html += "h1{color:#4caf50}p{color:#aaa;margin:12px 0}</style></head><body>";
+  html += "<div class='card'>";
+  html += "<h1>Saved!</h1>";
+  html += "<p>WiFi: <strong>" + ssid + "</strong></p>";
+  html += "<p>Rebooting in 3 seconds...</p>";
+  html += "<p style='color:#666;font-size:0.8em'>Connect to your WiFi network,<br>then check Serial Monitor for new IP</p>";
+  html += "</div></body></html>";
+  
+  configServer.send(200, "text/html", html);
+  
+  // Reboot after delay
+  delay(3000);
+  ESP.restart();
+}
+
+void startConfigPortal() {
+  configPortalActive = true;
+  Serial.println("[WIFI] Starting Config Portal...");
+  
+  // Setup AP
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP("AI-Pocket-Setup");
+  delay(500);
+  IPAddress apIP = WiFi.softAPIP();
+  Serial.printf("[WIFI] AP IP: %s\n", apIP.toString().c_str());
+  
+  // Draw config portal screen
+  drawConfigPortalScreen();
+  
+  // Setup config web server
+  configServer.on("/", HTTP_GET, handleConfigRoot);
+  configServer.on("/save", HTTP_POST, handleConfigSave);
+  configServer.begin();
+  
+  Serial.println("[WIFI] Config Portal ready at http://192.168.4.1");
+}
+
 // ============== WIFI SETUP ==============
 void setupWiFi() {
-  Serial.println("\n[WIFI] Connecting...");
+  Serial.println("\n[WIFI] Starting...");
   setStatus("WiFi...");
-
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
+  
+  // 1. Load saved credentials from NVS
+  loadWiFiCredentials();
+  
+  // 2. Determine which credentials to use
+  const char* ssid = nullptr;
+  const char* pass = nullptr;
+  
+  if (strlen(savedSSID) > 0) {
+    // Use NVS saved credentials
+    ssid = savedSSID;
+    pass = savedPass;
+    Serial.printf("[WIFI] Trying saved: %s\n", ssid);
+  } else if (strlen(WIFI_SSID) > 0 && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
+    // Use secrets.h credentials
+    ssid = WIFI_SSID;
+    pass = WIFI_PASSWORD;
+    Serial.printf("[WIFI] Trying secrets.h: %s\n", ssid);
+  } else {
+    // No credentials at all, go straight to config portal
+    Serial.println("[WIFI] No credentials found, starting config portal");
+    startConfigPortal();
+    return;
+  }
+  
+  // 3. Try to connect
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, pass);
+  
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
     Serial.print(".");
     attempts++;
   }
-
+  
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\n[WIFI] Connected!");
-    Serial.printf("[WIFI] IP: %s, RSSI: %d dBm\n", 
+    Serial.printf("[WIFI] IP: %s, RSSI: %d dBm\n",
                   WiFi.localIP().toString().c_str(), WiFi.RSSI());
     setStatus("Connected");
   } else {
-    Serial.println("\n[WIFI] Failed!");
-    setStatus("No WiFi");
+    // 4. If secrets.h failed and we used it, try NVS next time
+    //    If NVS failed, start config portal
+    Serial.println("\n[WIFI] Connection failed!");
+    
+    if (ssid == WIFI_SSID && strlen(savedSSID) == 0) {
+      // secrets.h failed, save as NVS so we retry next boot
+      // Actually, just start config portal
+      Serial.println("[WIFI] Starting config portal...");
+      WiFi.disconnect();
+      delay(100);
+      startConfigPortal();
+    } else if (ssid == savedSSID) {
+      // NVS credentials failed, try secrets.h as fallback
+      if (strlen(WIFI_SSID) > 0 && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
+        Serial.printf("[WIFI] Trying secrets.h fallback: %s\n", WIFI_SSID);
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        attempts = 0;
+        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+          delay(500);
+          Serial.print(".");
+          attempts++;
+        }
+        if (WiFi.status() == WL_CONNECTED) {
+          Serial.println("\n[WIFI] Connected via secrets.h!");
+          Serial.printf("[WIFI] IP: %s\n", WiFi.localIP().toString().c_str());
+          setStatus("Connected");
+          return;
+        }
+      }
+      // Both failed, start config portal
+      Serial.println("[WIFI] All attempts failed, starting config portal...");
+      WiFi.disconnect();
+      delay(100);
+      startConfigPortal();
+    } else {
+      startConfigPortal();
+    }
   }
 }
 
