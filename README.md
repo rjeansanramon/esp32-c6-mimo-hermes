@@ -59,6 +59,17 @@ A portable **AI pocket companion** built with the **ESP32-C6 Waveshare 1.47"** d
 - Blinking colon animation
 - Date and day of week
 
+### 📶 WiFi Config Portal
+- **No reflash needed** to change WiFi credentials
+- Auto-activates when WiFi connection fails
+- Creates AP: `AI-Pocket-Setup` (no password)
+- Web UI at `192.168.4.1` with dark theme
+- **Auto-scan** nearby WiFi networks
+- Manual SSID input for hidden networks
+- Saves credentials to NVS (persistent flash storage)
+- Fallback chain: NVS saved → secrets.h → Config Portal
+- Mobile-friendly responsive design
+
 ### 📊 Display Layout
 ```
 ┌─────────────────────┐
@@ -136,6 +147,17 @@ arduino-cli lib install "ArduinoJson"
 ```
 
 #### 1.2 Configure WiFi
+
+**Option A: WiFi Config Portal (Recommended)**
+
+Flash the firmware first, then configure WiFi via web UI:
+1. After first boot, ESP32 creates AP: `AI-Pocket-Setup`
+2. Connect your phone/laptop to that WiFi
+3. Open browser → `192.168.4.1`
+4. Select your WiFi, enter password, save
+5. ESP32 reboots and connects to your WiFi
+
+**Option B: secrets.h (Static)**
 
 Create `esp32_firmware/secrets.h`:
 
@@ -330,6 +352,14 @@ A 1000mAh LiPo battery provides approximately **8-10 hours** of continuous use.
 - Double-check SSID and password in `secrets.h`
 - Ensure 2.4GHz WiFi (ESP32-C6 doesn't support 5GHz-only networks)
 - Check WiFi security: WPA2 supported, WPA3 may have issues
+- **Config Portal will auto-start** if connection fails
+- Connect to `AI-Pocket-Setup` WiFi and go to `192.168.4.1` to reconfigure
+- Saved credentials are in NVS flash (persists across reboots)
+
+### WiFi Config Portal not showing
+- Wait 10-15 seconds after boot for WiFi connection attempt
+- If ESP32 connects successfully, portal won't start (by design)
+- To force config portal: clear NVS with `esptool.py erase_flash` then reflash
 
 ### Display shows wrong time
 - Verify timezone in `GMT_OFFSET_SEC` (seconds from UTC)
