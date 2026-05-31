@@ -48,6 +48,18 @@ TELEGRAM_MODE = os.getenv("TELEGRAM_MODE", "false").lower() == "true"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
+def send_telegram_reply(chat_id: str, text: str) -> bool:
+    """Send a reply message back to Telegram."""
+    if not TELEGRAM_BOT_TOKEN:
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        resp = requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
+        return resp.json().get("ok", False)
+    except Exception as e:
+        logger.error(f"[TELEGRAM] Reply error: {e}")
+        return False
+
 # ============== LOGGING ==============
 logging.basicConfig(
     level=logging.INFO,
@@ -348,10 +360,23 @@ def telegram_polling_loop():
 
                     if chat_id == TELEGRAM_CHAT_ID:
                         text = message.get("text", "")
+                        print(f"[TELEGRAM] Got message: {text[:50]}", flush=True)
                         logger.info(f"[TELEGRAM] Message from user: {text[:100]}")
 
-                        # This is a user message - the AI response will come back via webhook
-                        # or you can integrate with Hermes here
+                        # Forward user message to ESP32 display
+                        print(f"[TELEGRAM] Sending to ESP32...", flush=True)
+                        esp_ok = send_to_esp32(text, "Pesan diterima ✨", "telegram")
+                        print(f"[TELEGRAM] ESP32 result: {esp_ok}", flush=True)
+
+                        # Reply to user on Telegram
+                        if esp_ok:
+                            send_telegram_reply(chat_id, "✅ Dikirim ke ESP32 display!")
+                            logger.info("[TELEGRAM] Forwarded to ESP32 + replied")
+                        else:
+                            send_telegram_reply(chat_id, "❌ ESP32 tidak tersedia")
+                            logger.warning("[TELEGRAM] ESP32 unreachable")
+                    else:
+                        print(f"[TELEGRAM] Ignored message from chat_id={chat_id} (expected {TELEGRAM_CHAT_ID})", flush=True)
 
             time.sleep(1)
 
@@ -386,14 +411,14 @@ def retry_queue_loop():
 
 # ============== MAIN ==============
 def main():
+    global ESP32_IP, ESP32_PORT, BRIDGE_PORT, HERMES_WEBHOOK
+
     parser = argparse.ArgumentParser(description="AI Pocket - PC Bridge Server")
     parser.add_argument("--esp32-ip", default=ESP32_IP, help="ESP32-C6 IP address")
     parser.add_argument("--esp32-port", type=int, default=ESP32_PORT, help="ESP32 web server port")
     parser.add_argument("--port", type=int, default=BRIDGE_PORT, help="Bridge server port")
     parser.add_argument("--no-webhook", action="store_true", help="Disable Hermes webhook endpoint")
     args = parser.parse_args()
-
-    global ESP32_IP, ESP32_PORT, BRIDGE_PORT, HERMES_WEBHOOK
 
     ESP32_IP = args.esp32_ip
     ESP32_PORT = args.esp32_port
