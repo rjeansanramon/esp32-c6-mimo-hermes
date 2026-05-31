@@ -1214,7 +1214,7 @@ void handleStatus() {
              timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
   }
 
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<1024> doc;
   doc["status"] = "ok";
   doc["device"] = "AI-Pocket-v2.0";
   doc["ip"] = WiFi.localIP().toString();
@@ -1224,6 +1224,22 @@ void handleStatus() {
   doc["mood"] = moodLabels[currentMood];
   doc["last_user"] = lastUserMessage;
   doc["last_ai"] = lastAiResponse;
+  doc["standalone"] = standaloneMode;
+  doc["bridge_timeout"] = (millis() - lastBridgeHeartbeat) > BRIDGE_TIMEOUT_MS;
+  
+  // Debug standalone config
+  JsonObject debug = doc.createNestedObject("debug");
+  debug["bot_token_set"] = strlen(cfgBotToken) > 0;
+  debug["bot_token_len"] = strlen(cfgBotToken);
+  debug["bot_token_first5"] = String(cfgBotToken).substring(0, 5);
+  debug["chat_id"] = cfgChatId;
+  debug["mimo_key_set"] = strlen(cfgMimoApiKey) > 0;
+  debug["mimo_key_len"] = strlen(cfgMimoApiKey);
+  debug["mimo_url"] = cfgMimoUrl;
+  debug["mimo_model"] = cfgMimoModel;
+  debug["telegram_offset"] = telegramOffset;
+  debug["poll_interval"] = TELEGRAM_POLL_INTERVAL;
+  
   String resp;
   serializeJson(doc, resp);
   server.send(200, "application/json", resp);
