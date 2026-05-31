@@ -293,6 +293,8 @@ void handleMessage();
 void handleStatus();
 void handleLED();
 void handleNotFound();
+void handleReset();
+void handleResetDo();
 void updateDisplay();
 void drawClock();
 void drawMoodEmoji();
@@ -1009,6 +1011,8 @@ void setupWebServer() {
   server.on("/message", HTTP_POST, handleMessage);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/led", HTTP_POST, handleLED);
+  server.on("/reset", HTTP_GET, handleReset);
+  server.on("/reset", HTTP_POST, handleResetDo);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.printf("[SERVER] Running on port %d\n", WEB_SERVER_PORT);
@@ -1232,6 +1236,94 @@ void handleLED() {
     rgbLedOn = doc["on"] | true;
   }
   server.send(200, "text/plain", "ok");
+}
+
+// ============== RESET ENDPOINT (Password Protected) ==============
+#define RESET_PASSWORD "a1p0ck3t"
+
+void handleReset() {
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='UTF-8'>";
+  html += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
+  html += "<title>AI Pocket Reset</title>";
+  html += "<style>";
+  html += "*{box-sizing:border-box;margin:0;padding:0}";
+  html += "body{font-family:system-ui,sans-serif;background:#0a0e1a;color:#e0e0e0;padding:20px;display:flex;justify-content:center;align-items:center;min-height:100vh}";
+  html += ".card{max-width:380px;width:100%;background:#141b2d;border-radius:16px;padding:24px}";
+  html += "h1{color:#f44336;font-size:1.3em;text-align:center;margin-bottom:8px}";
+  html += "p{color:#888;font-size:0.85em;text-align:center;margin-bottom:20px}";
+  html += "label{display:block;color:#aaa;font-size:0.85em;margin-bottom:4px;margin-top:12px}";
+  html += "input{width:100%;padding:12px;border:1px solid #2a2a3d;border-radius:8px;background:#1a1f35;color:#fff;font-size:1em}";
+  html += "input:focus{outline:none;border-color:#f44336}";
+  html += "button{width:100%;padding:14px;margin-top:20px;border:none;border-radius:8px;background:#f44336;color:#fff;font-size:1em;font-weight:600;cursor:pointer}";
+  html += "button:hover{background:#d32f2f}";
+  html += ".warn{background:#2a1a1a;border:1px solid #f44336;border-radius:8px;padding:10px;margin-top:12px;font-size:0.8em;color:#f44336;text-align:center}";
+  html += "</style></head><body>";
+  html += "<div class='card'>";
+  html += "<h1>Factory Reset</h1>";
+  html += "<p>This will erase ALL saved config (WiFi, Telegram, MiMo) and reboot.</p>";
+  html += "<form method='POST' action='/reset'>";
+  html += "<label>Reset Password</label>";
+  html += "<input type='password' name='pass' placeholder='Enter password' required>";
+  html += "<button type='submit'>Reset & Reboot</button>";
+  html += "</form>";
+  html += "<div class='warn'>After reset, connect to AP: AI-Pocket-Setup</div>";
+  html += "</div></body></html>";
+  server.send(200, "text/html", html);
+}
+
+void handleResetDo() {
+  String pass = server.arg("pass");
+  
+  if (pass != RESET_PASSWORD) {
+    String html = "<!DOCTYPE html><html><head>";
+    html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
+    html += "<style>body{font-family:system-ui;background:#0a0e1a;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}";
+    html += ".card{background:#141b2d;border-radius:16px;padding:32px;text-align:center;max-width:350px}";
+    html += "h1{color:#f44336}a{color:#ff9800}</style></head><body>";
+    html += "<div class='card'><h1>Wrong Password!</h1>";
+    html += "<p style='margin:16px 0'><a href='/reset'>Try again</a></p>";
+    html += "</div></body></html>";
+    server.send(403, "text/html", html);
+    return;
+  }
+  
+  // Show reset screen on display
+  tft.fillScreen(C_BG);
+  tft.setTextColor(C_ORANGE);
+  tft.setTextSize(2);
+  tft.setCursor(20, 100);
+  tft.print("Resetting...");
+  tft.setTextSize(1);
+  tft.setTextColor(C_TEXT);
+  tft.setCursor(20, 130);
+  tft.print("Erasing all config...");
+  
+  // Erase all NVS
+  preferences.begin("wifi", false);
+  preferences.clear();
+  preferences.end();
+  
+  preferences.begin("standalone", false);
+  preferences.clear();
+  preferences.end();
+  
+  Serial.println("[RESET] All config erased!");
+  
+  // Show success
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
+  html += "<style>body{font-family:system-ui;background:#0a0e1a;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}";
+  html += ".card{background:#141b2d;border-radius:16px;padding:32px;text-align:center;max-width:350px}";
+  html += "h1{color:#4caf50}p{color:#aaa;margin:12px 0}</style></head><body>";
+  html += "<div class='card'><h1>Reset Complete!</h1>";
+  html += "<p>All config erased. Rebooting...</p>";
+  html += "<p style='color:#666;font-size:0.8em'>Connect to AP: <strong>AI-Pocket-Setup</strong><br>then go to 192.168.4.1</p>";
+  html += "</div></body></html>";
+  server.send(200, "text/html", html);
+  
+  delay(2000);
+  ESP.restart();
 }
 
 void handleNotFound() {
