@@ -1,2 +1,15 @@
 .ssh/github_ai_pocket
 .DS_Store
+
+# Secrets
+esp32_firmware/secrets.h
+pc_bridge/.env
+
+# Python
+pc_bridge/.venv/
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+/tmp/
