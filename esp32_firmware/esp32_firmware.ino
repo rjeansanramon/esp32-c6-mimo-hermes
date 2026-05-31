@@ -1239,7 +1239,7 @@ void handleLED() {
 }
 
 // ============== RESET ENDPOINT (Password Protected) ==============
-#define RESET_PASSWORD "a1p0ck3t"
+#define RESET_PASSWORD "aipocket2025"
 
 void handleReset() {
   String html = "<!DOCTYPE html><html><head>";
