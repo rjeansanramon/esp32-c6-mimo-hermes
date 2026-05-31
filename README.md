@@ -347,7 +347,7 @@ curl -X POST http://192.168.90.37/message \
 # Reset all settings (password protected)
 curl -X POST http://192.168.90.37/reset \
   -H "Content-Type: application/json" \
-  -d '{"password":"aipocket2025"}'
+  -d '{"password":"a1p0ck3t"}'
 ```
 
 ### Resetting Configuration
@@ -358,14 +358,14 @@ If you configured wrong WiFi, Telegram bot, or MiMo API key:
 # Option 1: Remote reset via API (if ESP32 is accessible)
 curl -X POST http://192.168.254.170/reset \
   -H "Content-Type: application/json" \
-  -d '{"password":"aipocket2025"}'
+  -d '{"password":"a1p0ck3t"}'
 
 # Option 2: Factory reset via USB (erases everything including firmware)
 esptool.py --port /dev/ttyACM0 erase_flash
 # Then reflash firmware
 ```
 
-**Default reset password**: `aipocket2025`
+**Default reset password**: `a1p0ck3t`
 
 ## Hardware Pinout Reference
 
@@ -451,7 +451,7 @@ A 1000mAh LiPo battery provides approximately **8-10 hours** of continuous use.
 - Check Serial Monitor for `[STANDALONE]` log messages
 
 ### Wrong config saved (WiFi/bot/API key)
-- **Remote reset**: `curl -X POST http://<ESP32_IP>/reset -H "Content-Type: application/json" -d '{"password":"aipocket2025"}'`
+- **Remote reset**: `curl -X POST http://<ESP32_IP>/reset -H "Content-Type: application/json" -d '{"password":"a1p0ck3t"}'`
 - ESP32 will reboot → Config Portal activates → reconfigure
 - **Factory reset**: `esptool.py erase_flash` then reflash (USB required)
 
