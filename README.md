@@ -1,6 +1,6 @@
 # AI Pocket - Portable AI Agent Display
 
-A portable **AI pocket companion** built with the **ESP32-C6 Waveshare 1.47"** display, connected to **Hermes Agent** by Nous Research using **Xiaomi MiMo** as the LLM backend. Chat with your AI via Telegram and see responses on a pocket-sized display.
+A portable **AI pocket companion** built with the **ESP32-C6 Waveshare 1.47"** display, connected to **Hermes Agent** by Nous Research using **Xiaomi MiMo** as the LLM backend. Chat with your AI via Telegram and see responses on a pocket-sized display with **mood-aware RGB LED** and **auto-scrolling text**.
 
 ![Architecture](docs/architecture.png)
 
@@ -8,10 +8,71 @@ A portable **AI pocket companion** built with the **ESP32-C6 Waveshare 1.47"** d
 
 **AI Pocket** turns an ESP32-C6 microcontroller with a tiny 1.47" LCD into a portable display for your AI agent. Here's how it works:
 
-1. You send a message to **Hermes Agent** via Telegram on your phone
-2. Hermes processes your message using **Xiaomi MiMo** API (or any configured LLM)
+1. You send a message to **@pocket_mimo_bot** via Telegram on your phone
+2. The **AI Bridge** processes your message using **Hermes Agent** (Xiaomi MiMo LLM)
 3. The AI response is **pushed in real-time** to the ESP32-C6 display over your local WiFi
 4. You see both your message and the AI's response on the pocket display
+5. The **RGB LED** changes color based on the AI's mood
+6. Long responses **auto-scroll** like a marquee
+
+## Features
+
+### 🎨 Mood System (9 Moods)
+| Mood | Emoji | RGB LED Color | Trigger Keywords |
+|------|-------|---------------|------------------|
+| Happy | 😊 | 🟡 Yellow pulse | senang, bagus, mantap, happy |
+| Angry | 😠 | 🔴 Red flicker | kesel, marah, dongkol, jengkel |
+| Sad | 😢 | 🔵 Blue breathe | sedih, galau, capek, lelah |
+| Excited | 😄 | 🟣 Magenta pulse | wow, amazing, luar biasa, keren |
+| Thinking | 🤔 | 🔵 Cyan rotate | hmm, let me think, interesting |
+| Strong | 💪 | 🟢 Green steady | berhasil, selesai, siap, done |
+| Neutral | 😐 | ⚪ Dim white | default fallback |
+| Wave | 👋 | 🟡 Yellow-green | halo, hello, hey |
+| Love | ❤️ | ❤️ Red-pink heartbeat | love, cinta, sayang |
+
+### 💡 RGB LED
+- Built-in RGB LED (GPIO8) reflects current mood
+- Breathing/pulse animations for each mood
+- GRB color order for Waveshare ESP32-C6
+
+### 📜 Auto-Scroll Marquee
+- Long AI responses auto-scroll upward
+- 3s pause at top, 2px/150ms scroll speed, 2s pause at bottom
+- Scroll indicator dots on bottom-right of AI bubble
+
+### 🤖 AI Bridge
+- Real AI responses via Hermes CLI
+- Telegram bot → Hermes AI → ESP32 display + Telegram reply
+- Auto-replies to user with AI-generated responses
+
+### 🕐 Real-Time Clock
+- NTP-synced time display (configurable timezone)
+- Blinking colon animation
+- Date and day of week
+
+### 📊 Display Layout
+```
+┌─────────────────────┐
+│  19:36      [|||]●  │  ← Clock + WiFi signal + status dot
+│  31 May Sun         │  ← Date + Day
+├─────────────────────┤
+│  😊 Happy Ready     │  ← Mood emoji (24x24) + label
+│  ● ● ●              │  ← Animated dots
+├─────────────────────┤
+│  YOU                │  ← User message label
+│  ┌─────────────┐    │
+│  │ Hello AI!   │    │  ← User chat bubble
+│  └─────────────┘    │
+│  AI                 │  ← AI response label
+│  ┌─────────────┐    │
+│  │ Hi there!   │    │  ← AI chat bubble (scrollable)
+│  │ How can I.. │    │
+│  └─────────────┘    │
+├─────────────────────┤
+│  AI Pocket v2.0     │  ← Status bar
+│  192.168.90.37      │
+└─────────────────────┘
+```
 
 ## Hardware Requirements
 
@@ -20,226 +81,157 @@ A portable **AI pocket companion** built with the **ESP32-C6 Waveshare 1.47"** d
 | **MCU** | Waveshare ESP32-C6-LCD-1.47 | 160MHz RISC-V, WiFi 6, BLE 5 |
 | **Display** | 1.47" TFT LCD | 172x320px, ST7789 driver, 262K colors |
 | **Storage** | 16MB Flash + TF card slot | For firmware and assets |
-| **LED** | RGB color LED | GPIO8, visual status indicator |
+| **LED** | RGB color LED (GPIO8) | WS2812, GRB order |
 | **Power** | USB-C 5V | Or 3.7V LiPo via GPIO |
 
 ## Project Structure
 
 ```
-ai-pocket-esp32/
+esp32-c6-mimo-hermes/
 ├── esp32_firmware/
-│   ├── esp32_firmware.ino    # Main Arduino sketch
-│   └── User_Setup.h          # TFT_eSPI display configuration
+│   ├── esp32_firmware.ino    # Main firmware (v2.0 Trendy Edition)
+│   └── secrets.h             # WiFi credentials (gitignored)
 ├── pc_bridge/
-│   ├── bridge_server.py      # PC bridge (Hermes → ESP32)
-│   └── requirements.txt      # Python dependencies
-├── hermes_skill/
-│   └── SKILL.md              # Hermes integration skill
-└── README.md                 # This guide
-```
-
-## System Architecture
-
-```
-┌─────────────────┐     Telegram      ┌──────────────────────────────┐
-│  Your Phone     │◄─────────────────►│  Local PC                    │
-│  (Telegram App) │                   │  ┌────────────────────────┐  │
-└─────────────────┘                   │  │ Hermes Agent           │  │
-                                      │  │ ├─ Telegram Gateway    │  │
-                                      │  │ ├─ Xiaomi MiMo API     │  │
-                                      │  │ └─ AI Pocket Skill     │  │
-                                      │  └────────────────────────┘  │
-                                      │  ┌────────────────────────┐  │
-                                      │  │ Bridge Server (Python) │  │
-                                      │  │ Port: 8765             │  │
-                                      │  └────────────────────────┘  │
-                                      └──────────────┬───────────────┘
-                                                     │ WiFi/LAN
-                                                     │ HTTP POST
-                                      ┌──────────────▼───────────────┐
-                                      │  ESP32-C6 Waveshare 1.47"    │
-                                      │  ├─ ST7789 Display 172x320   │
-                                      │  ├─ WiFi 6 Client            │
-                                      │  ├─ HTTP Server (Port 80)    │
-                                      │  └─ RGB LED Status           │
-                                      └──────────────────────────────┘
+│   ├── bridge_server.py      # PC bridge server (Hermes → ESP32)
+│   ├── telegram_bridge.py    # AI-powered Telegram bridge
+│   ├── requirements.txt      # Python dependencies
+│   └── .env                  # Bot token & config (gitignored)
+├── .gitignore
+└── README.md
 ```
 
 ## Quick Start
 
-### Step 1: Configure the ESP32 Display
+### Prerequisites
 
-#### 1.1 Install Arduino IDE & Board Support
+- **Hardware**: Waveshare ESP32-C6-LCD-1.47
+- **Software**: Arduino CLI or Arduino IDE 2.0+
+- **Account**: Telegram Bot Token (from @BotFather)
+- **LLM**: Hermes Agent installed with Xiaomi MiMo provider
 
-1. Open **Arduino IDE** (v2.0+ recommended)
-2. Go to **File → Preferences → Additional Boards Manager URLs**
-3. Add this URL:
-   ```
-   https://espressif.github.io/arduino-esp32/package_esp32_index.json
-   ```
-4. Go to **Tools → Board → Boards Manager**
-5. Search for **"ESP32"** and install **"ESP32 by Espressif Systems"** (v3.0+)
-6. Select board: **Tools → Board → ESP32Arduino → ESP32C6 Dev Module**
+### Step 1: Flash the ESP32 Firmware
 
-#### 1.2 Install Required Libraries
-
-In Arduino IDE, go to **Sketch → Include Library → Manage Libraries** and install:
-
-| Library | Version | Author | Purpose |
-|---------|---------|--------|---------|
-| **TFT_eSPI** | 2.5.43+ | Bodmer | ST7789 display driver |
-| **ArduinoJSON** | 7.0+ | Benoit Blanchon | JSON parsing |
-
-> **Note for TFT_eSPI**: ESP32-C6 requires a [patch](https://github.com/Bodmer/TFT_eSPI/pull/3438). Replace these files in your `libraries/TFT_eSPI/` folder with the patched versions.
-
-#### 1.3 Configure Display Pins
-
-Copy `esp32_firmware/User_Setup.h` to your TFT_eSPI library:
+#### 1.1 Install Arduino CLI
 
 ```bash
-# macOS/Linux
-cp esp32_firmware/User_Setup.h ~/Documents/Arduino/libraries/TFT_eSPI/User_Setup.h
+# Install arduino-cli
+curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
 
-# Windows
-copy esp32_firmware\User_Setup.h %USERPROFILE%\Documents\Arduino\libraries\TFT_eSPI\User_Setup.h
+# Install ESP32 board support
+arduino-cli core update-index
+arduino-cli core install esp32:esp32
+
+# Install required libraries
+arduino-cli lib install "LovyanGFX"
+arduino-cli lib install "ArduinoJson"
 ```
 
-#### 1.4 Flash the Firmware
+#### 1.2 Configure WiFi
 
-1. Open `esp32_firmware/esp32_firmware.ino` in Arduino IDE
-2. **Edit WiFi credentials** at the top of the sketch:
-   ```cpp
-   const char* WIFI_SSID = "YourWiFiName";
-   const char* WIFI_PASSWORD = "YourWiFiPassword";
-   ```
-3. Select port: **Tools → Port → [your ESP32-C6 COM port]**
-4. Click **Upload** (→ arrow)
-5. Open **Tools → Serial Monitor** (115200 baud) to see boot messages
+Create `esp32_firmware/secrets.h`:
+
+```cpp
+#ifndef SECRETS_H
+#define SECRETS_H
+
+const char* WIFI_SSID = "YourWiFiName";
+const char* WIFI_PASSWORD = "***";
+
+#endif
+```
+
+#### 1.3 Configure Timezone
+
+In `esp32_firmware/esp32_firmware.ino`, find and modify:
+
+```cpp
+// Change to your timezone (UTC offset in seconds)
+const long GMT_OFFSET_SEC = 8 * 3600;  // UTC+8 (Malaysia/Singapore)
+// const long GMT_OFFSET_SEC = 7 * 3600;  // UTC+7 (WIB Indonesia)
+```
+
+#### 1.4 Compile and Flash
+
+```bash
+# Compile
+arduino-cli compile --fqbn esp32:esp32:esp32c6 \
+  --libraries ~/Arduino/libraries \
+  esp32_firmware/
+
+# Flash (check your port: /dev/ttyACM0 or /dev/ttyACM1)
+arduino-cli upload --fqbn esp32:esp32:esp32c6 \
+  --port /dev/ttyACM0 \
+  esp32_firmware/
+```
 
 After flashing, the display will show:
-- Boot screen with "AI Pocket" title
+- Boot screen with "AI Pocket v2.0"
 - WiFi connection status
 - IP address (write this down!)
 
-### Step 2: Set Up the PC Bridge
+### Step 2: Set Up the Telegram Bot
 
-The bridge runs on the same PC as Hermes Agent.
+#### 2.1 Create Bot
 
-#### 2.1 Install Dependencies
+1. Open Telegram, search for **@BotFather**
+2. Send `/newbot`
+3. Follow prompts to name your bot
+4. Copy the **bot token** (e.g., `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
+
+#### 2.2 Get Your Chat ID
+
+1. Send a message to your new bot
+2. Open: `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates`
+3. Find your `chat.id` in the response
+
+### Step 3: Set Up the AI Bridge
+
+#### 3.1 Install Dependencies
 
 ```bash
 cd pc_bridge
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-#### 2.2 Run the Bridge Server
+#### 3.2 Configure Environment
+
+Create `pc_bridge/.env`:
+
+```env
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+TELEGRAM_CHAT_ID=your_chat_id_here
+ESP32_IP=192.168.90.37
+```
+
+#### 3.3 Start the AI Bridge
 
 ```bash
-python bridge_server.py --esp32-ip <ESP32_IP>
+cd pc_bridge
+source .venv/bin/activate
+python telegram_bridge.py --esp32-ip 192.168.90.37
 ```
 
-Replace `<ESP32_IP>` with the IP address shown on your ESP32 display at boot.
-
-Example:
-```bash
-python bridge_server.py --esp32-ip 192.168.1.100
-```
-
-The bridge will start on **port 8765** and show:
-- Connection status to ESP32
-- Web interface at `http://localhost:8765`
-- Hermes webhook endpoint at `http://localhost:8765/hermes/webhook`
-
-### Step 3: Configure Hermes Agent
-
-#### 3.1 Set Xiaomi MiMo as LLM Provider
-
-```bash
-hermes auth add xiaomi_mimo
-# Enter your MiMo API key when prompted
-
-hermes model
-# Select "xiaomi_mimo" as provider
-# Select "mimo-v2.5-pro" as model
-```
-
-Your MiMo API key is available at [platform.xiaomimimo.com](https://platform.xiaomimimo.com).
-
-#### 3.2 Configure Telegram Gateway
-
-```bash
-hermes gateway setup telegram
-# Follow prompts to enter your bot token from @BotFather
-```
-
-Set allowed users for security:
-```bash
-export TELEGRAM_ALLOWED_USERS="your_telegram_user_id"
-```
-
-#### 3.3 Add the AI Pocket Skill
-
-Copy the skill to Hermes skills directory:
-
-```bash
-cp -r hermes_skill ~/.hermes/skills/ai-pocket-display
-```
-
-Configure the skill in `~/.hermes/.env`:
-```bash
-# Required
-AI_POCKET_ESP32_IP=192.168.1.100  # Your ESP32's IP
-
-# Optional
-AI_POCKET_BRIDGE_PORT=8765
-AI_POCKET_AUTO_PUSH=true
-```
-
-#### 3.4 Configure Hermes Webhook (Recommended)
-
-Add to your Hermes config (`~/.hermes/config.yaml`):
-
-```yaml
-platforms:
-  webhook:
-    enabled: true
-    extra:
-      port: 8644
-      secret: "your-webhook-secret"
-      routes:
-        ai-pocket:
-          events: ["agent_response"]
-          secret: "pocket-secret"
-          prompt: "{{response}}"
-          deliver: "webhook"
-          deliver_extra:
-            url: "http://localhost:8765/hermes/webhook"
-```
-
-Or use the CLI:
-```bash
-hermes webhook subscribe ai-pocket \
-  --events "agent_response" \
-  --deliver webhook \
-  --deliver-url "http://localhost:8765/hermes/webhook" \
-  --secret "pocket-secret"
-```
+The bridge will:
+- Connect to Telegram and poll for messages
+- Call Hermes AI for each message
+- Forward AI responses to ESP32 display
+- Reply to Telegram with the AI response
 
 ### Step 4: Test Everything
 
 1. **Start the bridge** (if not running):
    ```bash
-   python pc_bridge/bridge_server.py --esp32-ip 192.168.1.100
+   cd pc_bridge && source .venv/bin/activate && python telegram_bridge.py
    ```
 
-2. **Start Hermes gateway**:
-   ```bash
-   hermes gateway start telegram
-   ```
+2. **Send a message** to your Telegram bot (e.g., "hello")
 
-3. **Send a message** to your Telegram bot
-
-4. **Watch the magic** — your ESP32 display should show both your message and the AI response!
+3. **Watch the magic** — your ESP32 display should show:
+   - Your message in the "YOU" bubble
+   - AI response in the "AI" bubble
+   - Mood emoji and RGB LED color based on response
 
 ## API Reference
 
@@ -264,72 +256,25 @@ hermes webhook subscribe ai-pocket \
 
 ### Direct API Test (cURL)
 
-Send a test message directly:
+Send a test message directly to ESP32:
 ```bash
-curl -X POST http://192.168.1.100/message \
+curl -X POST http://192.168.90.37/message \
   -H "Content-Type: application/json" \
-  -d '{"user_message":"Hello","ai_response":"Hi there!"}'
+  -d '{"user_message":"Hello","ai_response":"Hi there! I am happy to help!","source":"test"}'
 ```
 
-Via the bridge:
+Test specific moods:
 ```bash
-curl -X POST http://localhost:8765/display/message \
+# Test angry mood (red LED)
+curl -X POST http://192.168.90.37/message \
   -H "Content-Type: application/json" \
-  -d '{"ai_response":"Test from bridge"}'
+  -d '{"user_message":"test","ai_response":"Aku kesel banget! Marah dongkol!","source":"test"}'
+
+# Test sad mood (blue LED)
+curl -X POST http://192.168.90.37/message \
+  -H "Content-Type: application/json" \
+  -d '{"user_message":"test","ai_response":"Sedih banget, galau capek","source":"test"}'
 ```
-
-## Display Layout
-
-The 172x320 pixel display is organized as:
-
-```
-┌─────────────────────┐  ← 0,0
-│  AI Pocket    [|||] │  ← Header (30px): Title + WiFi signal
-├─────────────────────┤
-│  YOU:               │  ← User message area
-│  Hello AI, how are  │
-│  you doing today?   │
-├─────────────────────┤
-│  AI:                │  ← AI response area
-│  I'm doing great!   │
-│  Ready to help you  │
-│  with anything.     │
-│                     │
-│                     │
-│                     │
-│                     │
-├─────────────────────┤
-│  IP: 192.168.1.100  │  ← Status bar (22px): Connection info
-└─────────────────────┘  ← 171,319
-       172px wide
-```
-
-## Troubleshooting
-
-### ESP32 won't connect to WiFi
-- Double-check SSID and password in the firmware
-- Ensure 2.4GHz WiFi (ESP32-C6 doesn't support 5GHz-only networks)
-- Check WiFi security: WPA2 supported, WPA3 may have issues
-
-### Display shows garbled text
-- Verify TFT_eSPI `User_Setup.h` has correct pin mappings
-- Check SPI frequency (try reducing to 20000000)
-- Ensure color order is correct (`TFT_RGB` vs `TFT_BGR`)
-
-### Bridge can't reach ESP32
-- Verify both devices are on the same network
-- Check the ESP32 IP in Serial Monitor or on display boot
-- Temporarily disable firewall: `sudo ufw disable` (Linux)
-
-### Hermes not sending to display
-- Check bridge is running: `curl http://localhost:8765/`
-- Verify webhook is configured correctly
-- Check Hermes logs: `hermes logs`
-
-### Xiaomi MiMo API errors
-- Verify API key at [platform.xiaomimimo.com](https://platform.xiaomimimo.com)
-- Check model name: use `mimo-v2.5-pro` or `mimo-v2.5`
-- Note: MiMo API has some OpenAI compatibility issues with tool calling
 
 ## Hardware Pinout Reference
 
@@ -343,7 +288,7 @@ The 172x320 pixel display is organized as:
 | **DC** | GPIO15 | Data/command select |
 | **RST** | GPIO21 | Display reset |
 | **BL** | GPIO22 | Backlight control |
-| **RGB** | GPIO8 | WS2812 RGB LED |
+| **RGB** | GPIO8 | WS2812 RGB LED (GRB order) |
 
 ### TF Card Pin Mapping (Optional)
 
@@ -366,30 +311,51 @@ The 172x320 pixel display is organized as:
 
 A 1000mAh LiPo battery provides approximately **8-10 hours** of continuous use.
 
-## Extending the Project
+## Troubleshooting
 
-### Add a Battery
-Connect a 3.7V LiPo battery to the 2-pin battery header for portable operation.
+### ESP32 won't connect to WiFi
+- Double-check SSID and password in `secrets.h`
+- Ensure 2.4GHz WiFi (ESP32-C6 doesn't support 5GHz-only networks)
+- Check WiFi security: WPA2 supported, WPA3 may have issues
 
-### Add a Speaker (Future)
-The ESP32-C6 has I2S support. Add a MAX98357A I2S amplifier + speaker for:
-- Audio notifications
-- Text-to-speech responses
-- Wake word detection
+### Display shows wrong time
+- Verify timezone in `GMT_OFFSET_SEC` (seconds from UTC)
+- NTP sync happens on boot, may take a few seconds
+- Check WiFi connection (NTP needs internet)
 
-### Touch Support
-If using the **ESP32-C6-Touch-LCD-1.47** variant (with touch):
-- Touch controller: AXS5106L
-- Add touch calibration in firmware
-- Implement on-screen buttons for quick actions
+### RGB LED shows wrong color
+- Waveshare ESP32-C6 uses **GRB order**, not RGB
+- `neopixelWrite(pin, G, R, B)` — Green and Red are swapped
+- See firmware for correct color values per mood
 
-### Deep Sleep Mode
-Add deep sleep for battery saving:
-```cpp
-// Wake on button press or message arrival
-esp_sleep_enable_ext0_wakeup(GPIO_NUM_9, 0);  // BOOT button
-esp_light_sleep_start();
-```
+### Clock digit disappearing
+- Bug was fixed: colon blink position changed from `8+12` to `8+24`
+- If still occurring, check `drawClock()` function
+
+### Bridge can't reach ESP32
+- Verify both devices are on the same network
+- Check the ESP32 IP in Serial Monitor or on display boot
+- Temporarily disable firewall: `sudo ufw disable` (Linux)
+
+### Telegram bot not responding
+- Verify bot token in `.env`
+- Check chat ID matches your Telegram user ID
+- Ensure only one bridge instance is running
+
+### AI response timeout
+- Hermes CLI timeout is 30 seconds
+- Check internet connection
+- Verify Xiaomi MiMo API key is valid
+
+## Libraries Used
+
+| Library | Version | Purpose |
+|---------|---------|---------|
+| **LovyanGFX** | 1.1.16+ | ST7789 display driver (ESP32 Core v3.x compatible) |
+| **ArduinoJson** | 7.0+ | JSON parsing for API |
+| **WiFi** | built-in | ESP32 WiFi connectivity |
+| **WebServer** | built-in | HTTP server for API |
+| **time.h** | built-in | NTP time sync |
 
 ## Resources
 
@@ -397,7 +363,7 @@ esp_light_sleep_start();
 - **Hermes Agent**: [hermes-agent.nousresearch.com](https://hermes-agent.nousresearch.com/)
 - **Hermes GitHub**: [github.com/NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)
 - **Xiaomi MiMo API**: [platform.xiaomimimo.com/docs](https://platform.xiaomimimo.com/docs/en-US/api/chat/openai-api)
-- **TFT_eSPI Library**: [github.com/Bodmer/TFT_eSPI](https://github.com/Bodmer/TFT_eSPI)
+- **LovyanGFX Library**: [github.com/lovyan03/LovyanGFX](https://github.com/lovyan03/LovyanGFX)
 
 ## License
 
