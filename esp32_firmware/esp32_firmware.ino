@@ -968,11 +968,16 @@ void pollTelegramDirect() {
         JsonObject msg = u["message"];
         if (msg.isNull()) continue;
 
-        String chatId = String(msg["chat"]["id"].as<long>());
+        char chatIdBuf[21];
+        snprintf(chatIdBuf, sizeof(chatIdBuf), "%lld", msg["chat"]["id"].as<int64_t>());
+        String chatId = String(chatIdBuf);
         String text = msg["text"].as<String>();
 
         // Only process messages from our chat
-        if (chatId != String(cfgChatId)) continue;
+        if (chatId != String(cfgChatId)) {
+          Serial.printf("[STANDALONE] Skip: chat_id=%s expected=%s\n", chatId.c_str(), cfgChatId);
+          continue;
+        }
         if (text.length() == 0) continue;
 
         Serial.printf("[STANDALONE] Telegram msg: %s\n", text.substring(0, 50).c_str());
