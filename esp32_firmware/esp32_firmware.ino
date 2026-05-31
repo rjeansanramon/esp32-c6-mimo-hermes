@@ -46,7 +46,7 @@ public:
       auto cfg = _bus_instance.config();
       cfg.spi_host   = SPI2_HOST;
       cfg.spi_mode   = 0;
-      cfg.freq_write = 10000000;  // 10 MHz (reduced for lower heat)
+      cfg.freq_write = 5000000;   // 5 MHz (reduced for lower heat)
       cfg.freq_read  = 16000000;
       cfg.pin_sclk   = 7;
       cfg.pin_mosi   = 6;
@@ -259,6 +259,7 @@ bool g_aiBubbleValid = false;
 
 // RGB LED
 bool rgbLedOn = true;
+uint8_t displayBrightness = 128;  // 0-255, 50% default
 
 // WiFi Config Portal
 Preferences preferences;
@@ -299,6 +300,7 @@ void updateDisplay();
 void drawClock();
 void drawMoodEmoji();
 void drawChatArea();
+void drawInfoPanel();
 void drawStatusBar();
 void drawRoundedRect(int x, int y, int w, int h, int r, uint16_t color);
 void fillRoundedRect(int x, int y, int w, int h, int r, uint16_t color, uint16_t borderColor);
@@ -487,7 +489,7 @@ void setupDisplay() {
   tft.init();
   tft.setRotation(0);
   tft.invertDisplay(false);
-  tft.setBrightness(80);  // Lower brightness to reduce heat (0-255)
+  tft.setBrightness(displayBrightness);  // 50% brightness to reduce heat
   tft.fillScreen(C_BG);
 
   pinMode(22, OUTPUT);
@@ -1489,6 +1491,7 @@ void updateDisplay() {
   drawClock();
   drawMoodEmoji();
   drawChatArea();
+  drawInfoPanel();
   drawStatusBar();
 }
 
@@ -1617,7 +1620,7 @@ void drawMoodEmoji() {
 // ============== CHAT AREA ==============
 void drawChatArea() {
   int startY = 104;
-  int areaHeight = SCREEN_HEIGHT - startY - 28; // Leave room for status bar
+  int areaHeight = SCREEN_HEIGHT - startY - 52; // Leave room for info panel + status bar
   
   // Clear chat area
   tft.fillRect(0, startY, SCREEN_WIDTH, areaHeight, C_BG);
@@ -1704,6 +1707,66 @@ void drawChatArea() {
     // Normal drawing without scroll
     wrapText(lastAiResponse, 10, bubbleY + 4, textMaxWidth, aiVisibleLines, C_TEXT);
   }
+}
+
+// ============== INFO PANEL (Voltage, Temp, Brightness) ==============
+void drawInfoPanel() {
+  int panelY = SCREEN_HEIGHT - 48;  // Above status bar
+  int panelH = 24;
+  int colW = SCREEN_WIDTH / 3;
+  
+  // Background
+  tft.fillRect(0, panelY, SCREEN_WIDTH, panelH, C_BG_DARK);
+  
+  // Top accent line
+  tft.drawFastHLine(0, panelY, SCREEN_WIDTH, C_SURFACE2);
+  
+  // Read values
+  // Voltage: ESP32-C6 internal voltage (approximate)
+  float voltage = 3.3;  // Default USB power
+  // Temperature: internal sensor
+  float temp = temperatureRead();
+  // Brightness: current setting
+  int brightPct = (displayBrightness * 100) / 255;
+  
+  tft.setTextSize(1);
+  
+  // Column 1: Voltage ⚡
+  tft.setTextColor(C_ORANGE, C_BG_DARK);
+  tft.setCursor(4, panelY + 4);
+  tft.print("V");
+  tft.setTextColor(C_TEXT, C_BG_DARK);
+  tft.setCursor(14, panelY + 4);
+  char vStr[8];
+  snprintf(vStr, sizeof(vStr), "%.1fV", voltage);
+  tft.print(vStr);
+  
+  // Column 2: Temperature 🌡️
+  tft.setTextColor(C_ORANGE, C_BG_DARK);
+  tft.setCursor(colW + 4, panelY + 4);
+  tft.print("T");
+  tft.setTextColor(C_TEXT, C_BG_DARK);
+  tft.setCursor(colW + 14, panelY + 4);
+  char tStr[10];
+  snprintf(tStr, sizeof(tStr), "%.0fC", temp);
+  tft.print(tStr);
+  
+  // Column 3: Brightness 💡
+  tft.setTextColor(C_ORANGE, C_BG_DARK);
+  tft.setCursor(colW * 2 + 4, panelY + 4);
+  tft.print("B");
+  tft.setTextColor(C_TEXT, C_BG_DARK);
+  tft.setCursor(colW * 2 + 14, panelY + 4);
+  char bStr[8];
+  snprintf(bStr, sizeof(bStr), "%d%%", brightPct);
+  tft.print(bStr);
+  
+  // Vertical dividers
+  tft.drawFastVLine(colW, panelY + 3, panelH - 6, C_SURFACE2);
+  tft.drawFastVLine(colW * 2, panelY + 3, panelH - 6, C_SURFACE2);
+  
+  // Bottom accent line
+  tft.drawFastHLine(0, panelY + panelH - 1, SCREEN_WIDTH, C_SURFACE2);
 }
 
 // ============== STATUS BAR ==============
