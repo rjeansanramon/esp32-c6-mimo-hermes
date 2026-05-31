@@ -315,6 +315,7 @@ void saveStandaloneConfig(const char* token, const char* chatId, const char* api
 void pollTelegramDirect();
 String callMiMoAPI(const char* userText);
 void replyTelegram(const char* chatId, const char* text);
+void sendTyping(const char* chatId);
 void sendToBridgeOrDirect(const char* userMsg, const char* aiMsg);
 void drawInlineEmoji(int emojiIdx, int x, int y, uint16_t color);
 int findEmoji(const char* utf8, int* bytesUsed);
@@ -875,6 +876,26 @@ void saveStandaloneConfig(const char* token, const char* chatId, const char* api
   Serial.println("[STANDALONE] Config saved to NVS");
 }
 
+void sendTyping(const char* chatId) {
+  if (strlen(cfgBotToken) == 0) return;
+  
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String url = String("https://api.telegram.org/bot") + cfgBotToken + "/sendChatAction";
+  
+  StaticJsonDocument<128> doc;
+  doc["chat_id"] = chatId;
+  doc["action"] = "typing";
+  String body;
+  serializeJson(doc, body);
+  
+  https.begin(client, url);
+  https.addHeader("Content-Type", "application/json");
+  https.POST(body);
+  https.end();
+}
+
 void replyTelegram(const char* chatId, const char* text) {
   if (strlen(cfgBotToken) == 0) return;
 
@@ -987,6 +1008,9 @@ void pollTelegramDirect() {
         strncpy(lastAiResponse, "🤔 Thinking...", MAX_MSG_LENGTH - 1);
         currentMood = MOOD_THINKING;
         updateDisplay();
+
+        // Send typing indicator to Telegram
+        sendTyping(cfgChatId);
 
         // Call MiMo API directly
         String aiResponse = callMiMoAPI(text.c_str());
