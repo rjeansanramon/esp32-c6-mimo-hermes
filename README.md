@@ -311,6 +311,7 @@ ESP32 will:
 | `/message` | POST | Receive message to display (JSON or form) |
 | `/status` | GET | Get device status (JSON) |
 | `/led` | POST | Control RGB LED (`{"state":"on"}` or `{"state":"off"}`) |
+| `/reset` | POST | Reset all NVS settings (password protected) |
 
 ### Bridge Server Endpoints
 
@@ -342,7 +343,29 @@ curl -X POST http://192.168.90.37/message \
 curl -X POST http://192.168.90.37/message \
   -H "Content-Type: application/json" \
   -d '{"user_message":"test","ai_response":"Sedih banget, galau capek","source":"test"}'
+
+# Reset all settings (password protected)
+curl -X POST http://192.168.90.37/reset \
+  -H "Content-Type: application/json" \
+  -d '{"password":"aipocket2025"}'
 ```
+
+### Resetting Configuration
+
+If you configured wrong WiFi, Telegram bot, or MiMo API key:
+
+```bash
+# Option 1: Remote reset via API (if ESP32 is accessible)
+curl -X POST http://192.168.254.170/reset \
+  -H "Content-Type: application/json" \
+  -d '{"password":"aipocket2025"}'
+
+# Option 2: Factory reset via USB (erases everything including firmware)
+esptool.py --port /dev/ttyACM0 erase_flash
+# Then reflash firmware
+```
+
+**Default reset password**: `aipocket2025`
 
 ## Hardware Pinout Reference
 
@@ -426,6 +449,11 @@ A 1000mAh LiPo battery provides approximately **8-10 hours** of continuous use.
 - ESP32 needs internet access (WiFi connected)
 - Standalone activates after 60s with no bridge heartbeat
 - Check Serial Monitor for `[STANDALONE]` log messages
+
+### Wrong config saved (WiFi/bot/API key)
+- **Remote reset**: `curl -X POST http://<ESP32_IP>/reset -H "Content-Type: application/json" -d '{"password":"aipocket2025"}'`
+- ESP32 will reboot → Config Portal activates → reconfigure
+- **Factory reset**: `esptool.py erase_flash` then reflash (USB required)
 
 ### AI response timeout
 - MiMo API timeout is 15 seconds
