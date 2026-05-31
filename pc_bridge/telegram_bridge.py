@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Telegram -> ESP32 bridge with fast AI responses via Xiaomi MiMo API."""
-import os, sys, json, time, urllib.request
+"""Telegram -> ESP32 bridge: fast API for chat, Hermes CLI for computer access."""
+import os, sys, json, time, urllib.request, subprocess
 
 LOG = "/tmp/telegram_bridge.log"
 
@@ -36,6 +36,7 @@ open(LOG, "w").close()
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 ESP32 = os.environ.get("ESP32_IP", "192.168.90.37")
+HERMES_CLI = os.environ.get("HERMES_CLI", "/home/alpha01/.local/bin/hermes")
 
 # Xiaomi MiMo API config
 MIMO_API_KEY = os.environ.get("XIAOMI_API_KEY", "")
@@ -49,12 +50,36 @@ SYSTEM_PROMPT = (
     "Tulis respons langsung tanpa awalan atau penjelasan."
 )
 
+# Keywords that need computer access
+COMPUTER_KEYWORDS = [
+    "cek ", "check ", "folder", "file", "hardisk", "harddisk", "disk",
+    "ram", "cpu", "memory", "proses", "process", "running", "jalan",
+    "terminal", "command", "jalankan", "install", "hapus", "delete",
+    "copy", "pindah", "rename", "buat folder", "make directory",
+    "lihat", "list", "ls", "cat ", "baca", "read", "tulis", "write",
+    "docker", "git", "npm", "pip", "apt", "systemctl", "service",
+    "ip ", "wifi", "network", "internet", "ping", "curl", "wget",
+    "python", "node", "bash", "script", "compile", "build",
+    "restart", "shutdown", "reboot", "update", "upgrade",
+    "size", "besar", "kapasitas", "space", "free", "sisa"
+]
+
 log(f"Bot: {TOKEN[:10]}...")
 log(f"Chat: {CHAT_ID}")
 log(f"ESP32: {ESP32}")
 log(f"API: {MIMO_BASE_URL}")
 log(f"Model: {MIMO_MODEL}")
-log("Starting fast AI bridge...")
+log(f"Hermes: {HERMES_CLI}")
+log("Starting hybrid AI bridge (API + Hermes)...")
+
+
+def needs_computer_access(text):
+    """Check if the message needs computer access."""
+    lower = text.lower()
+    for kw in COMPUTER_KEYWORDS:
+        if kw in lower:
+            return True
+    return False
 
 
 def send_chat_action(chat_id, action="typing"):
@@ -83,10 +108,10 @@ def send_esp32_thinking(user_msg):
         pass
 
 
-def get_ai_response(user_text):
-    """Call Xiaomi MiMo API directly for fast response."""
+def get_ai_fast(user_text):
+    """Call Xiaomi MiMo API directly for fast chat response."""
     try:
-        log(f"  Calling MiMo API...")
+        log(f"  [API] Calling MiMo...")
         start = time.time()
 
         url = f"{MIMO_BASE_URL}/chat/completions"
@@ -110,15 +135,50 @@ def get_ai_response(user_text):
         elapsed = time.time() - start
 
         ai_text = data["choices"][0]["message"]["content"].strip()
-        log(f"  AI response ({elapsed:.1f}s): {ai_text[:80]}...")
+        log(f"  [API] Response ({elapsed:.1f}s): {ai_text[:80]}...")
         return ai_text
 
     except urllib.error.HTTPError as e:
-        log(f"  API error {e.code}: {e.read().decode()[:100]}")
+        log(f"  [API] Error {e.code}: {e.read().decode()[:100]}")
         return "Maaf, AI error 😅"
     except Exception as e:
-        log(f"  API error: {e}")
+        log(f"  [API] Error: {e}")
         return "Maaf, AI sedang sibuk 😅"
+
+
+def get_ai_hermes(user_text):
+    """Call Hermes CLI for computer access tasks."""
+    prompt = (
+        f"Kamu adalah AI asisten pocket yang punya akses ke komputer user. "
+        f"User minta: {user_text}\n\n"
+        f"Jawab dengan singkat dan langsung. "
+        f"Jangan gunakan markdown formatting."
+    )
+    try:
+        log(f"  [HERMES] Calling Hermes CLI...")
+        start = time.time()
+
+        result = subprocess.run(
+            [HERMES_CLI, "-z", prompt],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "HERMES_SILENT": "1"}
+        )
+        elapsed = time.time() - start
+
+        ai_text = result.stdout.strip()
+        if ai_text:
+            log(f"  [HERMES] Response ({elapsed:.1f}s): {ai_text[:80]}...")
+            return ai_text
+        else:
+            log(f"  [HERMES] Empty response, stderr: {result.stderr[:100]}")
+            return "Maaf, AI sedang sibuk 😅"
+
+    except subprocess.TimeoutExpired:
+        log(f"  [HERMES] Timeout (60s)")
+        return "Hmm, terlalu lama mikir... coba lagi ya ⏰"
+    except Exception as e:
+        log(f"  [HERMES] Error: {e}")
+        return f"Error: {str(e)[:50]}"
 
 
 def send_esp32(user_msg, ai_msg):
@@ -174,15 +234,20 @@ while True:
 
                 if cid == CHAT_ID:
                     if txt.startswith("/start"):
-                        reply(cid, "🤖 AI Pocket Bot aktif!\n\nKirim pesan dan AI akan merespons + tampil di ESP32 display.")
+                        reply(cid, "🤖 AI Pocket Bot aktif!\n\nKirim pesan biasa → AI chat cepat\nKirim perintah komputer → akses ke PC kamu")
                         continue
 
-                    # Show typing + thinking simultaneously
+                    # Show typing + thinking
                     send_chat_action(cid, "typing")
                     send_esp32_thinking(txt)
 
-                    # Get AI response
-                    ai_response = get_ai_response(txt)
+                    # Route: fast API for chat, Hermes for computer access
+                    if needs_computer_access(txt):
+                        log(f"  → Route: HERMES (computer access)")
+                        ai_response = get_ai_hermes(txt)
+                    else:
+                        log(f"  → Route: API (fast chat)")
+                        ai_response = get_ai_fast(txt)
 
                     # Send to ESP32
                     esp_ok = send_esp32(txt, ai_response)

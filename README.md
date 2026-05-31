@@ -41,9 +41,18 @@ A portable **AI pocket companion** built with the **ESP32-C6 Waveshare 1.47"** d
 - Scroll indicator dots on bottom-right of AI bubble
 
 ### 🤖 AI Bridge
-- Real AI responses via Hermes CLI
-- Telegram bot → Hermes AI → ESP32 display + Telegram reply
+- **Hybrid mode**: Fast MiMo API for chat + Hermes CLI for computer access
+- Regular chat → Direct MiMo API (3-7s response time) ⚡
+- Computer commands → Hermes CLI (folder, disk, process access) 💻
+- Auto-detects intent: keywords like "folder", "file", "disk", "hardisk", "process" trigger Hermes
+- Typing indicator on Telegram while processing
+- "Thinking..." display on ESP32 during AI response generation
 - Auto-replies to user with AI-generated responses
+
+### 📝 Multi-Paragraph Support
+- Handles `\n` (Unix) and `\r\n` (Windows) line breaks correctly
+- Multi-paragraph AI responses display fully on screen with auto-scroll
+- Fixed newline-at-start-of-line bug that caused text truncation
 
 ### 🕐 Real-Time Clock
 - NTP-synced time display (configurable timezone)
@@ -203,9 +212,11 @@ Create `pc_bridge/.env`:
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 TELEGRAM_CHAT_ID=your_chat_id_here
 ESP32_IP=192.168.90.37
+MIMO_API_KEY=your_mimo_api_key_here
+MIMO_API_URL=https://token-plan-sgp.xiaomimimo.com/v1
 ```
 
-#### 3.3 Start the AI Bridge
+#### 3.3 Start the Hybrid AI Bridge
 
 ```bash
 cd pc_bridge
@@ -215,9 +226,11 @@ python telegram_bridge.py --esp32-ip 192.168.90.37
 
 The bridge will:
 - Connect to Telegram and poll for messages
-- Call Hermes AI for each message
-- Forward AI responses to ESP32 display
+- **Chat mode**: Call MiMo API directly for fast responses (3-7s)
+- **Computer mode**: Call Hermes CLI for system access (folder, disk, etc.)
+- Forward all responses to ESP32 display
 - Reply to Telegram with the AI response
+- Show typing indicator on Telegram while processing
 
 ### Step 4: Test Everything
 
@@ -343,9 +356,15 @@ A 1000mAh LiPo battery provides approximately **8-10 hours** of continuous use.
 - Ensure only one bridge instance is running
 
 ### AI response timeout
-- Hermes CLI timeout is 30 seconds
+- MiMo API timeout is 15 seconds
+- Hermes CLI timeout is 30 seconds (for computer access commands)
 - Check internet connection
 - Verify Xiaomi MiMo API key is valid
+
+### Multi-paragraph text disappearing on display
+- Bug was fixed: `\n` at start of line caused text truncation
+- Now handles both Unix (`\n`) and Windows (`\r\n`) line breaks
+- If still occurring, check `wrapText()` and `countWrappedLines()` functions
 
 ## Libraries Used
 
