@@ -70,6 +70,20 @@ A portable **AI pocket companion** built with the **ESP32-C6 Waveshare 1.47"** d
 - Fallback chain: NVS saved → secrets.h → Config Portal
 - Mobile-friendly responsive design
 
+### 🔌 Standalone Mode (No PC Bridge Needed)
+- ESP32 can run **100% independently** without the PC bridge
+- Auto-detects bridge timeout (60s) and switches to standalone
+- **Direct Telegram polling** from ESP32
+- **Direct MiMo API calls** from ESP32 (HTTPS)
+- Auto-switches back to bridge mode when bridge comes online
+- Configure Telegram Bot Token, Chat ID, and MiMo API Key via Config Portal
+- All credentials saved to NVS (persists across reboots)
+
+### 🔑 Explicit Hermes Routing
+- Keyword `hermes` forces routing to Hermes CLI (computer access)
+- Priority: `hermes` explicit → computer keywords → fast API chat
+- Examples: "hermes cek folder documents", "buka hermes buatkan folder test"
+
 ### 📊 Display Layout
 ```
 ┌─────────────────────┐
@@ -254,6 +268,20 @@ The bridge will:
 - Reply to Telegram with the AI response
 - Show typing indicator on Telegram while processing
 
+#### 3.4 Standalone Mode (Optional, No Bridge Required)
+
+If you want the ESP32 to work without the PC bridge:
+
+1. Open WiFi Config Portal (`192.168.4.1` when in AP mode)
+2. Enter **Telegram Bot Token**, **Chat ID**, and **MiMo API Key**
+3. Save & reboot
+
+ESP32 will:
+- Wait 60 seconds for bridge connection
+- If no bridge → auto-switch to standalone mode
+- Poll Telegram directly and call MiMo API over HTTPS
+- Auto-switch back when bridge comes online
+
 ### Step 4: Test Everything
 
 1. **Start the bridge** (if not running):
@@ -267,6 +295,11 @@ The bridge will:
    - Your message in the "YOU" bubble
    - AI response in the "AI" bubble
    - Mood emoji and RGB LED color based on response
+
+4. **Test standalone mode** (optional):
+   - Stop the bridge
+   - Wait 60 seconds
+   - Send another message → ESP32 handles it directly
 
 ## API Reference
 
@@ -384,6 +417,15 @@ A 1000mAh LiPo battery provides approximately **8-10 hours** of continuous use.
 - Verify bot token in `.env`
 - Check chat ID matches your Telegram user ID
 - Ensure only one bridge instance is running
+- **Standalone mode**: Check Bot Token and Chat ID are saved in Config Portal NVS
+- **Bridge mode**: Check bridge log at `/tmp/telegram_bridge.log`
+
+### Standalone mode not working
+- Ensure Telegram Bot Token and Chat ID are saved via Config Portal
+- Check MiMo API Key is valid
+- ESP32 needs internet access (WiFi connected)
+- Standalone activates after 60s with no bridge heartbeat
+- Check Serial Monitor for `[STANDALONE]` log messages
 
 ### AI response timeout
 - MiMo API timeout is 15 seconds
