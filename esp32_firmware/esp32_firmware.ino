@@ -1094,13 +1094,16 @@ int countWrappedLines(const char* text, int maxWidth) {
 
   int len = strlen(text);
   int pos = 0;
+  bool wasNewline = false;
 
   while (pos < len) {
     cursorX = 0;
+    wasNewline = false;
 
     while (pos < len && cursorX < maxWidth) {
       if (text[pos] == '\n') {
         pos++;
+        wasNewline = true;
         break;
       }
 
@@ -1126,10 +1129,10 @@ int countWrappedLines(const char* text, int maxWidth) {
       }
     }
 
-    if (cursorX == 0 && lineCount > 0) break;
+    if (cursorX == 0 && lineCount > 0 && !wasNewline) break;
     lineCount++;
 
-    while (pos < len && text[pos] == ' ') pos++;
+    while (pos < len && (text[pos] == ' ' || text[pos] == '\r')) pos++;
   }
 
   return lineCount;
@@ -1147,13 +1150,16 @@ void wrapText(const char* text, int x, int startY, int maxWidth, int maxLines, u
 
   int len = strlen(text);
   int pos = 0;
+  bool wasNewline = false;
 
   while (pos < len && lineCount < maxLines) {
     cursorX = x;
+    wasNewline = false;
     
     while (pos < len && cursorX - x < maxWidth) {
       if (text[pos] == '\n') {
         pos++;
+        wasNewline = true;
         break;
       }
       
@@ -1182,11 +1188,11 @@ void wrapText(const char* text, int x, int startY, int maxWidth, int maxLines, u
       }
     }
     
-    if (cursorX == x && lineCount > 0) break;
+    if (cursorX == x && lineCount > 0 && !wasNewline) break;
     cursorY += lineHeight;
     lineCount++;
     
-    while (pos < len && text[pos] == ' ') pos++;
+    while (pos < len && (text[pos] == ' ' || text[pos] == '\r')) pos++;
   }
 }
 
